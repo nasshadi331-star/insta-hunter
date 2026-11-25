@@ -128,6 +128,7 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 def main():
+    asyncio.set_event_loop(asyncio.new_event_loop())
     init_db()
 
     app = Application.builder().token(TOKEN).build()
