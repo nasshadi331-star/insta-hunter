@@ -1,171 +1,155 @@
 
 import os
+import re
+import csv
+import io
 import sqlite3
 import random
 import string
-import csv
-import io
-import re
 
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes
-)
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 TOKEN = os.environ["BOT_TOKEN"]
+DB_NAME = "usernames.db"
 
-db = sqlite3.connect("insta_hunter.db")
-db.execute("""
-CREATE TABLE IF NOT EXISTS usernames (
-    username TEXT PRIMARY KEY,
-    category TEXT,
-    status TEXT DEFAULT 'Unverified'
-)
-""")
-db.commit()
+def init_db():
+    with sqlite3.connect(DB_NAME) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS usernames (
+                user_id INTEGER,
+                username TEXT,
+                UNIQUE(user_id, username)
+            )
+        """)
 
+def save_username(user_id, username):
+    with sqlite3.connect(DB_NAME) as db:
+        db.execute(
+            "INSERT OR IGNORE INTO usernames VALUES (?, ?)",
+            (user_id, username)
+        )
 
-def save(username, category):
-    db.execute(
-        "INSERT OR IGNORE INTO usernames "
-        "(username, category) VALUES (?, ?)",
-        (username, category)
-    )
-    db.commit()
-
+def get_usernames(user_id):
+    with sqlite3.connect(DB_NAME) as db:
+        return db.execute(
+            "SELECT username FROM usernames WHERE user_id = ?",
+            (user_id,)
+        ).fetchall()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 INSTA HUNTER\n\n"
-        "/quad - توليد يوزرات رباعية\n"
-        "/generate - توليد يوزرات\n"
-        "/save USER - حفظ يوزر\n"
-        "/check USER - تسجيل يوزر للفحص\n"
-        "/list - عرض المحفوظات\n"
-        "/export - تصدير CSV"
+        "أهلًا بك في Insta Hunter!\n\n"
+        "/quad - توليد أسماء رباعية\n"
+        "/generate - توليد أسماء عشوائية\n"
+        "/save الاسم - حفظ اسم\n"
+        "/check الاسم - فحص صيغة الاسم\n"
+        "/list - عرض الأسماء المحفوظة\n"
+        "/export - تصدير الأسماء"
     )
-
 
 async def quad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chars = string.ascii_lowercase + string.digits
-    results = set()
-
-    while len(results) < 20:
-        results.add("".join(random.choices(chars, k=4)))
-
-    for username in results:
-        save(username, "Quad")
-
+    names = [
+        "".join(random.choices(chars, k=4))
+        for _ in range(10)
+    ]
     await update.message.reply_text(
-        "🎯 اليوزرات الرباعية:\n\n" +
-        "\n".join("@" + u for u in sorted(results))
+        "أسماء رباعية مقترحة:\n" + "\n".join(names)
     )
-
 
 async def generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chars = string.ascii_lowercase + string.digits
-    results = set()
-
-    while len(results) < 15:
-        length = random.choice([4, 5, 6])
-        results.add(
-            "".join(random.choices(chars, k=length))
-        )
-
-    for username in results:
-        save(username, "Generated")
-
+    chars = string.ascii_lowercase + string.digits + "._"
+    names = [
+        "".join(random.choices(chars, k=random.randint(5, 10)))
+        for _ in range(10)
+    ]
     await update.message.reply_text(
-        "🎲 النتائج:\n\n" +
-        "\n".join("@" + u for u in sorted(results))
+        "أسماء عشوائية مقترحة:\n" + "\n".join(names)
     )
 
-
-async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def save(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("استخدم /save username")
+        await update.message.reply_text("استخدم: /save username")
         return
 
-    username = context.args[0].lower().lstrip("@")
+    username = context.args[0].lower()
 
     if not re.fullmatch(r"[a-z0-9._]{1,30}", username):
-        await update.message.reply_text("❌ صيغة غير صحيحة")
+        await update.message.reply_text("صيغة الاسم غير صحيحة.")
         return
 
-    save(username, "Manual")
-    await update.message.reply_text(f"✅ تم حفظ @{username}")
-
+    save_username(update.effective_user.id, username)
+    await update.message.reply_text("تم حفظ الاسم.")
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("استخدم /check username")
+        await update.message.reply_text("استخدم: /check username")
         return
 
-    username = context.args[0].lower().lstrip("@")
+    username = context.args[0].lower()
 
-    if not re.fullmatch(r"[a-z0-9._]{1,30}", username):
-        await update.message.reply_text("❌ صيغة غير صحيحة")
+    if re.fullmatch(r"[a-z0-9._]{1,30}", username):
+        await update.message.reply_text(
+            "صيغة الاسم صحيحة، لكن لم يتم التحقق من توفره في إنستغرام."
+        )
+    else:
+        await update.message.reply_text("صيغة الاسم غير صحيحة.")
+
+async def list_names(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    names = get_usernames(update.effective_user.id)
+
+    if not names:
+        await update.message.reply_text("ما عندك أسماء محفوظة.")
         return
-
-    save(username, "Check request")
 
     await update.message.reply_text(
-        f"🔎 @{username}\n"
-        "الحالة: غير متحقق منها.\n"
-        "لا يعني ذلك أن الحساب متاح."
+        "الأسماء المحفوظة:\n" +
+        "\n".join(row[0] for row in names)
     )
-
-
-async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = db.execute(
-        "SELECT username, category FROM usernames LIMIT 50"
-    ).fetchall()
-
-    if not rows:
-        await update.message.reply_text("القائمة فارغة")
-        return
-
-    message = "📋 المحفوظات:\n\n"
-    for username, category in rows:
-        message += f"@{username} — {category}\n"
-
-    await update.message.reply_text(message)
-
 
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = db.execute(
-        "SELECT username, category FROM usernames"
-    ).fetchall()
+    names = get_usernames(update.effective_user.id)
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Username", "Category"])
-    writer.writerows(rows)
+    if not names:
+        await update.message.reply_text("ما عندك أسماء لتصديرها.")
+        return
 
-    file = io.BytesIO(output.getvalue().encode("utf-8-sig"))
-    file.name = "insta_hunter.csv"
+    file = io.StringIO()
+    writer = csv.writer(file)
+    writer.writerow(["username"])
+    writer.writerows(names)
+
+    data = io.BytesIO(file.getvalue().encode("utf-8-sig"))
+    data.name = "usernames.csv"
 
     await update.message.reply_document(
-        document=file,
-        caption="📁 Insta Hunter"
+        document=data,
+        filename="usernames.csv"
     )
 
-
 def main():
+    init_db()
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("quad", quad))
     app.add_handler(CommandHandler("generate", generate))
-    app.add_handler(CommandHandler("save", save_command))
+    app.add_handler(CommandHandler("save", save))
     app.add_handler(CommandHandler("check", check))
-    app.add_handler(CommandHandler("list", list_users))
+    app.add_handler(CommandHandler("list", list_names))
     app.add_handler(CommandHandler("export", export))
 
-    app.run_polling()
+    render_url = os.environ["RENDER_EXTERNAL_URL"]
+    port = int(os.environ.get("PORT", "10000"))
 
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=TOKEN,
+        webhook_url=f"{render_url}/{TOKEN}"
+    )
 
 if __name__ == "__main__":
     main()
