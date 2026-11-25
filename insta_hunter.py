@@ -135,6 +135,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("quad", quad))
+    app.add_handler(CommandHandler("quadpro", quadpro))
     app.add_handler(CommandHandler("generate", generate))
     app.add_handler(CommandHandler("save", save))
     app.add_handler(CommandHandler("check", check))
@@ -150,6 +151,19 @@ def main():
         url_path=TOKEN,
         webhook_url=f"{render_url}/{TOKEN}"
     )
+async def quadpro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chars = string.ascii_lowercase + string.digits
 
+    names = set()
+
+    while len(names) < 1000:
+        names.add("".join(random.choices(chars, k=4)))
+
+    for username in names:
+        save_username(update.effective_user.id, username)
+
+    await update.message.reply_text(
+        f"تم توليد وحفظ {len(names)} اسم رباعي بنجاح!"
+    )
 if __name__ == "__main__":
     main()
